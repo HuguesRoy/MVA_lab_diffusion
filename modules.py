@@ -200,3 +200,43 @@ class PreNorm(nn.Module):
         x = self.norm(x)
         return self.fn(x)
 
+class DiffusionModel(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    @torch.no_grad()
+    def _p_sample(self, x, t, betas, device):
+        t = torch.tensor([t]).to(device)
+        betas = betas.to(device)
+        alphas = 1. - betas
+        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+
+        sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1. - alphas_cumprod[t])
+        sqrt_recip_alphas_t = sqrt_recip_alphas[t]
+
+        model_mean = sqrt_recip_alphas_t * (x - betas[t] * self.forward(x, t) / sqrt_one_minus_alphas_cumprod_t)
+
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+
+        noise = torch.randn_like(x)
+
+        return model_mean + torch.sqrt(posterior_variance[t]) * noise
+
+    @torch.no_grad()
+    def _sample_training(self,shape, timesteps , betas, device):
+        
+        # start from pure noise (for each example in the batch)
+        img = torch.randn(shape, device=device)
+
+        for i in reversed(range(0, timesteps)):
+            img = self.p_sample(img, i, betas, device)
+
+        return img
+
+
+        
+        
