@@ -206,7 +206,7 @@ class DiffusionModel(nn.Module):
         super().__init__()
 
     @torch.no_grad()
-    def _p_sample(self, x, t, betas, device):
+    def _p_sample_epsilon(self, x, t, betas, device):
         t = torch.tensor([t]).to(device)
         betas = betas.to(device)
         alphas = 1. - betas
@@ -221,22 +221,79 @@ class DiffusionModel(nn.Module):
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
 
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+        noise = torch.randn_like(x)
+
+        if t == 0:
+            return model_mean
+        else:
+            return model_mean + torch.sqrt(posterior_variance[t]) * noise
+    
+    @torch.no_grad()
+    def _p_sample_data(self, x, t, betas, device):
+        t = torch.tensor([t]).to(device)
+
+        betas = betas.to(device)
+        alphas = 1. - betas
+
+        alphas_cumprod = torch.cumprod(alphas, axis=0) 
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        model_mean =  (torch.sqrt(alphas[t])*(1-alphas_cumprod[t])*x + torch.sqrt(alphas_cumprod_prev[t])*(1-alphas[t])*self.forward(x, t))/ (1-alphas_cumprod[t])
+
+        posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
         noise = torch.randn_like(x)
 
-        return model_mean + torch.sqrt(posterior_variance[t]) * noise
+        if t == 0:
+            return model_mean
+        else:
+            return model_mean + torch.sqrt(posterior_variance[t]) * noise
 
     @torch.no_grad()
-    def _sample_training(self,shape, timesteps , betas, device):
+    def _p_sample_score(self, x, t, betas, device):
+        t = torch.tensor([t]).to(device)
+        betas = betas.to(device)
+        alphas = 1. - betas
+
+        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+
+        sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1. - alphas_cumprod[t])
+        sqrt_recip_alphas_t = sqrt_recip_alphas[t]
+
+        model_mean = sqrt_recip_alphas_t * ( x + betas[t] * self.forward(x, t))
+
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+
+        noise = torch.randn_like(x)
+
+        if t == 0:
+            return model_mean
+        else:
+            return model_mean + torch.sqrt(posterior_variance[t]) * noise
+
+    @torch.no_grad()
+    def _sample_training(self,shape, timesteps , betas, device, denoising_process_type = "epsilon" ):
         
         # start from pure noise (for each example in the batch)
         img = torch.randn(shape, device=device)
 
         for i in reversed(range(0, timesteps)):
-            img = self.p_sample(img, i, betas, device)
-
+            if denoising_process_type == "epsilon":
+                img = self._p_sample_epsilon(img, i, betas, device)
+            elif denoising_process_type == "score":
+                img = self._p_sample_score(img, i, betas, device)
+            elif denoising_process_type == "data":
+                img = self._p_sample_data(img, i, betas, device)
         return img
+    
 
+
+
+        
+        
 
         
         
