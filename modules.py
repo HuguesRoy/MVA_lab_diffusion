@@ -281,12 +281,14 @@ class DiffusionModel(nn.Module):
         img = torch.randn(shape, device=device)
 
         for i in reversed(range(0, timesteps)):
-            if denoising_process_type == "epsilon":
+            if denoising_process_type == "noise":
                 img = self._p_sample_epsilon(img, i, betas, device)
             elif denoising_process_type == "score":
                 img = self._p_sample_score(img, i, betas, device)
             elif denoising_process_type == "data":
                 img = self._p_sample_data(img, i, betas, device)
+            else:
+                raise NotImplementedError("Not implemented for this type of loss choose ['data','noise','score'].")
         return img
     
 
